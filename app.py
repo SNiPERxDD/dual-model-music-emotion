@@ -1,3 +1,5 @@
+# --- START OF FILE app.py ---
+
 #USAGE : streamlit run app.py 
 
 import os
@@ -11,6 +13,7 @@ import tempfile
 import gc
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pydub import AudioSegment # <-- IMPORT Pydub
 
 # Disable GPU usage
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -33,7 +36,29 @@ cluster_emotions = deep_model["cluster_emotions"]
 # --- Feature Extraction ---
 def extract_features(file_path):
     try:
-        y, sr = librosa.load(file_path, offset=45.0, duration=30.0, sr=None)
+        # --- NEW AUDIO LOADING METHOD USING PYDUB ---
+        # 1. Load audio file with pydub
+        audio = AudioSegment.from_file(file_path)
+        
+        # 2. Set sample rate to 22050 Hz (standard for librosa)
+        audio = audio.set_frame_rate(22050)
+        
+        # 3. Convert to mono
+        audio = audio.set_channels(1)
+
+        # 4. Extract 30-second segment from the middle (45s in)
+        start_ms = 45 * 1000
+        end_ms = start_ms + 30 * 1000
+        segment = audio[start_ms:end_ms]
+
+        # 5. Convert to numpy array and normalize
+        samples = np.array(segment.get_array_of_samples()).astype(np.float32) / np.iinfo(segment.sample_width * 8).max
+        
+        # Librosa now works on the raw audio data (y) and sample rate (sr)
+        y = samples
+        sr = segment.frame_rate
+        # --- END OF NEW LOADING METHOD ---
+
         features = {}
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
@@ -49,7 +74,9 @@ def extract_features(file_path):
         zcr = librosa.feature.zero_crossing_rate(y)
         features["zero_crossing_rate_mean"] = np.mean(zcr)
         features["zero_crossing_rate_var"] = np.var(zcr)
-        features["tempo"] = librosa.beat.tempo(y=y, sr=sr)[0]
+        
+        # Use librosa.feature.rhythm.tempo to avoid the FutureWarning
+        features["tempo"] = librosa.feature.rhythm.tempo(y=y, sr=sr)[0]
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
         features["spectral_centroid_mean"] = np.mean(centroid)
@@ -93,7 +120,7 @@ def extract_features(file_path):
         tempogram = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr)
         features["tempo_var"] = np.var(tempogram)
 
-        _, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+        _, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
         features["beat_count"] = len(beat_frames)
 
         return features
@@ -101,7 +128,8 @@ def extract_features(file_path):
         logging.error(f"Error processing file: {e}")
         return None
 
-# --- Prediction Functions ---
+# --- [REST OF THE FILE IS UNCHANGED] ---
+# ... (Prediction Functions, Process Uploaded File, Streamlit UI) ...
 def predict_deep(features):
     order = scaler.feature_names_in_ if hasattr(scaler, "feature_names_in_") else sorted(features.keys())
     x = np.array([features[f] for f in order if f in features]).reshape(1, -1)
@@ -121,7 +149,7 @@ def predict_xgb(features):
 
 # --- Process Uploaded File ---
 def process_uploaded(file):
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.name)[1]) as temp_file:
         temp_file.write(file.getbuffer())
         temp_path = temp_file.name
     features = extract_features(temp_path)
