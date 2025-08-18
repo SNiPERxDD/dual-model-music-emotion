@@ -1,7 +1,9 @@
 
 <p align="center">
     <img src="https://img.shields.io/badge/Python-3.8%2B-blue?logo=python" alt="Python">
-    <img src="https://img.shields.io/badge/Streamlit-App-red?logo=streamlit" alt="Streamlit">
+    <a href="https://dual-model-music-emotion.streamlit.app" target="_blank">
+        <img src="https://img.shields.io/badge/Streamlit-Live%20Demo-red?logo=streamlit" alt="Streamlit Live Demo">
+    </a>
     <img src="https://img.shields.io/badge/License-All%20Rights%20Reserved-lightgrey" alt="All Rights Reserved">
 </p>
 
@@ -20,6 +22,11 @@ Music Emotion Recognition (MER) is a challenging field in music information retr
 2.  **Unsupervised Model (Deep Learning):** To discover inherent emotional groupings in music without relying on labels, an unsupervised pipeline was built. This model uses an **Autoencoder** for dimensionality reduction, followed by **UMAP** and **KMeans** clustering. It successfully identifies five distinct emotional clusters, which have been mapped to 'Euphoria', 'Melancholy', 'Serenity', 'Rage', and 'Dread'.
 
 A key component of this project is the **advanced feature engineering**, which combines standard audio features with "human-aware" metrics to better capture the nuances of musical emotion.
+
+
+## Live Demo
+
+[▶️ Try the app on Streamlit Cloud](https://dual-model-music-emotion.streamlit.app)
 
 ## How to Run
 
