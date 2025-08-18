@@ -26,7 +26,7 @@ A key component of this project is the **advanced feature engineering**, which c
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/SNiPERxDD/dual-model-music-emotion.git
-    cd MLApp
+    cd dual-model-music-emotion
     ```
 
 2.  **Set up a virtual environment and install dependencies:**
