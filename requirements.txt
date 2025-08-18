@@ -1,5 +1,5 @@
 pandas
-scikit-learn
+scikit-learn==1.4.2
 xgboost
 joblib
 umap-learn
@@ -8,3 +8,4 @@ librosa
 streamlit
 tqdm
 numpy
+numba==0.57.1
