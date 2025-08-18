@@ -1,0 +1,10 @@
+pandas
+scikit-learn
+xgboost
+joblib
+umap-learn
+tensorflow
+librosa
+streamlit
+tqdm
+numpy
