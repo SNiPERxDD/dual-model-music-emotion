@@ -52,7 +52,7 @@ This project utilizes a rich set of over 50 features extracted using `librosa`, 
 .
 ├── data/                 # CSV data files
 │   ├── features_3_sec.csv
-│   └── melora_human_features.csv
+│   └── melora_human_features.csv (not included in repo due to copyright)
 ├── models/               # Saved model files
 │   ├── model.pkl
 │   ├── mood_xgboost_tuned.pkl
@@ -70,3 +70,11 @@ This project utilizes a rich set of over 50 features extracted using `librosa`, 
 ├── LICENSE
 └── requirements.txt
 ```
+
+## Disclaimer
+
+This project and its contents are provided **for personal, educational, and non-commercial use only**. Redistribution, commercial usage, or derivative works are **strictly prohibited** without **explicit written permission** from the author.
+
+Some assets such as `melora_human_features.csv` are **not included** due to copyright and licensing constraints. You are responsible for ensuring compliance with all applicable laws and licenses when using or adapting this project.
+
+All rights, including intellectual property rights in the source code, models, features, and documentation, are reserved by the author.

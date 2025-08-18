@@ -94,3 +94,5 @@ dmypy.json
 # data/
 # *.csv
 melora_human_features.csv
+.DS_Store
+data/melora_human_features.csv
