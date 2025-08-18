@@ -85,7 +85,7 @@ dmypy.json
 # VS Code
 .vscode/
 
-# Models (do not hide if you want Streamlit Cloud to access them)
+# Models 
 # models/
 # *.pkl
 # *.h5
@@ -93,3 +93,4 @@ dmypy.json
 # Data
 # data/
 # *.csv
+melora_human_features.csv
