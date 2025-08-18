@@ -1,6 +1,12 @@
-# Music Emotion Recognition with Hybrid Modeling
 
-**Repository:** [https://github.com/SNiPERxDD/dual-model-music-emotion.git](https://github.com/SNiPERxDD/dual-model-music-emotion.git)
+<p align="center">
+    <img src="https://img.shields.io/badge/Python-3.8%2B-blue?logo=python" alt="Python">
+    <img src="https://img.shields.io/badge/Streamlit-App-red?logo=streamlit" alt="Streamlit">
+    <img src="https://img.shields.io/badge/License-All%20Rights%20Reserved-lightgrey" alt="All Rights Reserved">
+    <img src="https://img.shields.io/badge/GitHub-SNiPERxDD%2Fdual--model--music--emotion-181717?logo=github" alt="GitHub">
+</p>
+
+# Music Emotion Recognition with Hybrid Modeling
 
 **License:** All Rights Reserved
 
