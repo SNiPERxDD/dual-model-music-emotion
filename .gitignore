@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# macOS system files
+.DS_Store
+
 # C extensions
 *.so
 
@@ -82,11 +85,11 @@ dmypy.json
 # VS Code
 .vscode/
 
-# Models
-models/
-*.pkl
-*.h5
+# Models (do not hide if you want Streamlit Cloud to access them)
+# models/
+# *.pkl
+# *.h5
 
 # Data
-data/
-*.csv
+# data/
+# *.csv

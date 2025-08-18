@@ -2,7 +2,7 @@
 
 **Repository:** [https://github.com/SNiPERxDD/dual-model-music-emotion.git](https://github.com/SNiPERxDD/dual-model-music-emotion.git)
 
-**License:** GNU General Public License v3.0 (GPL-3.0)
+**License:** All Rights Reserved
 
 This project develops and compares two distinct machine learning pipelines for Music Emotion Recognition (MER): a supervised XGBoost classifier and an unsupervised deep learning model. The goal is to accurately classify the emotional content of music tracks, culminating in an interactive Streamlit application for real-time prediction.
 
@@ -67,5 +67,6 @@ This project utilizes a rich set of over 50 features extracted using `librosa`, 
 ├── app.py                # Main Streamlit application
 ├── .gitignore
 ├── README.md
+├── LICENSE
 └── requirements.txt
 ```
