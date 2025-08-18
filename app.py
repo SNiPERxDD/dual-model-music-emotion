@@ -75,8 +75,7 @@ def extract_features(file_path):
         features["zero_crossing_rate_mean"] = np.mean(zcr)
         features["zero_crossing_rate_var"] = np.var(zcr)
         
-        # Use librosa.feature.rhythm.tempo to avoid the FutureWarning
-        features["tempo"] = librosa.feature.rhythm.tempo(y=y, sr=sr)[0]
+        features["tempo"] = librosa.feature.tempo(y=y, sr=sr)[0]
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
         features["spectral_centroid_mean"] = np.mean(centroid)
