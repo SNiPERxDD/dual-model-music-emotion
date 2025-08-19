@@ -13,10 +13,10 @@ import tempfile
 import gc
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pydub import AudioSegment # <-- IMPORT Pydub
+from pydub import AudioSegment 
 
 # Disable GPU usage
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 # --- Load Pre-trained Models ---
 @st.cache_resource
