@@ -1,0 +1,16 @@
+[server]
+maxUploadSize = 200
+maxMessageSize = 200
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+magicEnabled = false
+installTracer = false
+fixMatplotlib = false
+postScriptGC = true
+
+[logger]
+level = "info"
