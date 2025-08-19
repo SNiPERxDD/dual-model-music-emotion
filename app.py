@@ -1,4 +1,4 @@
-#USAGE : streamlit run DualModel.py 
+#USAGE : streamlit run app.py 
 
 import os
 import numpy as np
