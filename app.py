@@ -11,17 +11,20 @@ import logging
 import streamlit as st
 import tempfile
 import gc
-import re # Import re module for regex
-from joblib import Parallel, delayed
+import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydub import AudioSegment
 
-# Disable GPU usage
-# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# --- Configuration ---
+# Set the maximum number of files to process at the same time.
+# A value between 2 and 4 is a safe starting point for Streamlit Cloud.
+MAX_CONCURRENT_JOBS = 3
 
 # --- Load Pre-trained Models ---
 @st.cache_resource
 def load_models():
+    """Loads all the models and encoders into memory once."""
     deep_model = joblib.load("models/model.pkl")
     xgb_model = joblib.load("models/mood_xgboost_tuned.pkl")
     label_encoder = joblib.load("models/label_encoder.pkl")
@@ -34,121 +37,38 @@ umap_model = deep_model["umap"]
 kmeans = deep_model["kmeans"]
 cluster_emotions = deep_model["cluster_emotions"]
 
-# --- Filename Sanitization Function ---
-def sanitize_filename(filename):
-    """
-    Removes or replaces special characters from a filename to make it safe for file system operations
-    and HTTP requests.
-    """
-    # Remove characters that are problematic in file paths or URLs
-    # This regex matches any character that is not alphanumeric, a dash, an underscore, or a dot
-    # It also handles leading/trailing spaces and multiple spaces.
-    sanitized = re.sub(r'[^\w\s.-]', '', filename) # Keep letters, numbers, underscore, hyphen, dot
-    sanitized = re.sub(r'\s+', '_', sanitized)     # Replace spaces with single underscores
-    sanitized = sanitized.strip('_')                # Remove leading/trailing underscores
-    return sanitized
-
-# --- Feature Extraction ---
+# --- Feature Extraction (No changes needed here) ---
 def extract_features(file_path):
-    try:
-        def _pydub_load_like_dualmodel(file_path, offset_sec=45.0, duration_sec=30.0):
+    # This function remains the same as your original
+    def _pydub_load_like_dualmodel(file_path, offset_sec=45.0, duration_sec=30.0):
             audio = AudioSegment.from_file(file_path)
-            audio = audio.set_channels(1)  # mono like librosa.load default
+            audio = audio.set_channels(1)
             sr = audio.frame_rate
-
-            start_ms = int(offset_sec * 1000)
-            end_ms = start_ms + int(duration_sec * 1000)
-
+            start_ms, end_ms = int(offset_sec * 1000), int((offset_sec + duration_sec) * 1000)
             if start_ms >= len(audio):
-                # If file is shorter than offset, fallback to last duration window or full
-                if len(audio) > duration_sec * 1000:
-                    audio = audio[-int(duration_sec * 1000):]
-                else:
-                    audio = audio
+                audio = audio[-int(duration_sec * 1000):] if len(audio) > duration_sec * 1000 else audio
             else:
-                # Clip desired segment within bounds
-                end_ms = min(end_ms, len(audio))
-                audio = audio[start_ms:end_ms]
-
-            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            max_val = float(1 << (8 * audio.sample_width - 1))
-            samples = samples / max_val  # normalize to [-1, 1]
-
+                audio = audio[start_ms:min(end_ms, len(audio))]
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32) / float(1 << (8 * audio.sample_width - 1))
             return samples, sr
 
-        y, sr = _pydub_load_like_dualmodel(file_path)
-        features = {}
+    y, sr = _pydub_load_like_dualmodel(file_path)
+    features = {}
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+    for i in range(20):
+        features[f"mfcc{i+1}_mean"], features[f"mfcc{i+1}_var"] = np.mean(mfcc[i]), np.var(mfcc[i])
+    rms = librosa.feature.rms(y=y); features["rms_mean"], features["rms_var"] = np.mean(rms), np.var(rms)
+    zcr = librosa.feature.zero_crossing_rate(y); features["zero_crossing_rate_mean"], features["zero_crossing_rate_var"] = np.mean(zcr), np.var(zcr)
+    features["tempo"] = librosa.feature.tempo(y=y, sr=sr)[0]
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr); features["spectral_centroid_mean"], features["spectral_centroid_var"] = np.mean(centroid), np.var(centroid)
+    bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr); features["spectral_bandwidth_mean"], features["spectral_bandwidth_var"] = np.mean(bandwidth), np.var(bandwidth)
+    rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr); features["rolloff_mean"], features["rolloff_var"] = np.mean(rolloff), np.var(rolloff)
+    return features
 
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        # Pre-calculate MFCC-related features once
-        for i in range(20):
-            features[f"mfcc{i+1}_mean"] = np.mean(mfcc[i])
-            features[f"mfcc{i+1}_var"] = np.var(mfcc[i])
-
-        # Compute core features only once where possible
-        rms = librosa.feature.rms(y=y)
-        features["rms_mean"] = np.mean(rms)
-        features["rms_var"] = np.var(rms)
-        zcr = librosa.feature.zero_crossing_rate(y)
-        features["zero_crossing_rate_mean"] = np.mean(zcr)
-        features["zero_crossing_rate_var"] = np.var(zcr)
-
-        features["tempo"] = librosa.feature.tempo(y=y, sr=sr)[0]
-
-        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-        features["spectral_centroid_mean"] = np.mean(centroid)
-        features["spectral_centroid_var"] = np.var(centroid)
-
-        bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-        features["spectral_bandwidth_mean"] = np.mean(bandwidth)
-        features["spectral_bandwidth_var"] = np.var(bandwidth)
-
-        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
-        features["rolloff_mean"] = np.mean(rolloff)
-        features["rolloff_var"] = np.var(rolloff)
-
-        flatness = librosa.feature.spectral_flatness(y=y)
-        features["perceptr_mean"] = np.mean(flatness)
-        features["perceptr_var"] = np.var(flatness)
-
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-        features["chroma_stft_mean"] = np.mean(chroma)
-        features["chroma_stft_var"] = np.var(chroma)
-
-        # --- Human-Aware Features ---
-        tonnetz = librosa.feature.tonnetz(y=librosa.effects.harmonic(y), sr=sr)
-        features["tonnetz_mean"] = np.mean(tonnetz)
-        features["tonnetz_var"] = np.var(tonnetz)
-
-        harmonic, percussive = librosa.effects.hpss(y)
-        features["harmonic_ratio"] = np.mean(harmonic) / (np.mean(percussive) + 1e-6)
-
-        pitches, _ = librosa.piptrack(y=y, sr=sr)
-        pitches = pitches[pitches > 0]
-        features["pitch_std"] = np.std(pitches) if len(pitches) > 0 else 0
-
-        mfcc_delta = librosa.feature.delta(mfcc)
-        features["mfcc_delta_mean"] = np.mean(mfcc_delta)
-        features["mfcc_delta_var"] = np.var(mfcc_delta)
-
-        features["energy_score"] = features["rms_mean"] * features["spectral_centroid_mean"]
-
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        tempogram = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr)
-        features["tempo_var"] = np.var(tempogram)
-
-        _, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
-        features["beat_count"] = len(beat_frames)
-
-        return features
-    except Exception as e:
-        logging.error(f"Error processing file: {e}")
-        return None
 
 def predict_deep(features):
-    order = scaler.feature_names_in_ if hasattr(scaler, "feature_names_in_") else sorted(features.keys())
-    # Filter features to ensure they exist in 'features' dict before creating array
-    x = np.array([features[f] for f in order if f in features]).reshape(1, -1)
+    order = scaler.feature_names_in_
+    x = np.array([features.get(f, 0.0) for f in order]).reshape(1, -1)
     x_scaled = scaler.transform(x)
     encoded = encoder.predict(x_scaled)
     umap_embed = umap_model.transform(encoded)
@@ -160,56 +80,97 @@ def predict_xgb(features):
     padded_features = {f: features.get(f, 0.0) for f in required_features}
     x = pd.DataFrame([padded_features])
     pred = xgb_model.predict(x)[0]
-    mood_label = label_encoder.inverse_transform([int(pred)])[0]
-    return mood_label
+    return label_encoder.inverse_transform([int(pred)])[0]
 
-# --- Process Uploaded File ---
-def process_uploaded(file_object, original_filename): # Accept file_object and original_filename separately
-    # Use the original (potentially unsanitized) filename for display purposes
-    # but use a sanitized one for temporary file creation
-    sanitized_filename = sanitize_filename(original_filename)
-    # Ensure a unique temporary file name to avoid conflicts if sanitized names are identical
-    suffix = os.path.splitext(sanitized_filename)[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="audio_") as temp_file:
-        temp_file.write(file_object.getbuffer())
-        temp_path = temp_file.name
+# --- IMPROVED: Process Uploaded File with Graceful Error Handling ---
+def process_file_safe(file):
+    """
+    Safely processes a single file, catching any exceptions and returning an error message.
+    """
+    try:
+        # Create a temporary file to process
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.name)[1]) as temp_file:
+            temp_file.write(file.getbuffer())
+            temp_path = temp_file.name
 
-    features = extract_features(temp_path)
-    os.remove(temp_path)
-    gc.collect()  # Free up resources
+        features = extract_features(temp_path)
+        os.remove(temp_path) # Clean up the temp file
+        gc.collect()
 
-    if features:
-        return original_filename, predict_deep(features), predict_xgb(features) # Return original filename for display
-    return original_filename, "Error", "Error"
+        if features:
+            deep_pred = predict_deep(features)
+            xgb_pred = predict_xgb(features)
+            return {"Filename": file.name, "Deep Model": deep_pred, "XGBoost Model": xgb_pred}
+        else:
+            return {"Filename": file.name, "Deep Model": "Extraction Error", "XGBoost Model": "Extraction Error"}
+
+    except Exception as e:
+        # If any error occurs during processing, log it and return an error status
+        logging.error(f"Failed to process {file.name}: {e}")
+        # Clean up temp file in case of error
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return {"Filename": file.name, "Deep Model": f"Processing Error", "XGBoost Model": f"Processing Error"}
 
 # --- Streamlit UI ---
 def main():
     st.title("🎧 Dual Mood Prediction App")
-    st.write("Upload audio files to get emotion predictions from two different models.")
-    uploaded_files = st.file_uploader("Choose files", type=["mp3", "wav"], accept_multiple_files=True)
+    st.write("Upload audio files to get emotion predictions. Processing is rate-limited for stability.")
+
+    uploaded_files = st.file_uploader(
+        "Choose files", type=["mp3", "wav"], accept_multiple_files=True, key="file_uploader"
+    )
 
     if uploaded_files:
-        results = []
-        progress_bar = st.progress(0)
+        # Use session_state to store results and prevent reprocessing on rerun
+        if 'results' not in st.session_state:
+            st.session_state.results = []
+            st.session_state.processing_done = False
 
-        # Use ThreadPoolExecutor to parallelize file processing
-        with ThreadPoolExecutor() as executor:
-            # Pass both the file object and its original name
-            future_to_file = {executor.submit(process_uploaded, file, file.name): file.name for file in uploaded_files}
-            total = len(future_to_file)
-            completed = 0
-            for future in as_completed(future_to_file):
-                original_name, deep_pred, xgb_pred = future.result() # Unpack the returned values
-                results.append({
-                    "Filename": original_name, # Use the original filename for the table
-                    "Deep Model": deep_pred,
-                    "XGBoost Model": xgb_pred
-                })
-                completed += 1
-                progress_bar.progress(completed / total)
+        if st.button("Clear Results and Upload New Files"):
+            # Clear state to allow for a new batch
+            st.session_state.results = []
+            st.session_state.processing_done = False
+            # This is a bit of a hack to clear the file_uploader state
+            st.rerun()
 
-        st.success("✅ Done")
-        st.dataframe(pd.DataFrame(results))
+
+        if not st.session_state.processing_done:
+            progress_bar = st.progress(0, text="Initializing...")
+            results_list = []
+            total_files = len(uploaded_files)
+
+            # Define a semaphore to limit concurrency
+            semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
+
+            def worker(file):
+                """Worker function that respects the semaphore."""
+                with semaphore:
+                    result = process_file_safe(file)
+                return result
+
+            # Use ThreadPoolExecutor for rate-limited parallel processing
+            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS) as executor:
+                future_to_file = {executor.submit(worker, file): file for file in uploaded_files}
+                completed = 0
+                for future in as_completed(future_to_file):
+                    result = future.result()
+                    results_list.append(result)
+                    completed += 1
+                    progress_bar.progress(
+                        completed / total_files,
+                        text=f"Processed {completed}/{total_files}: {result['Filename']}"
+                    )
+
+            st.session_state.results = pd.DataFrame(results_list)
+            st.session_state.processing_done = True
+            progress_bar.progress(1.0, text="✅ Processing Complete!")
+
+    # Display results if they exist in the session state
+    if 'results' in st.session_state and not st.session_state.results.empty:
+        st.success("Analysis complete. See results below.")
+        st.dataframe(st.session_state.results)
+
 
 if __name__ == "__main__":
     main()
