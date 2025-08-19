@@ -36,29 +36,33 @@ cluster_emotions = deep_model["cluster_emotions"]
 # --- Feature Extraction ---
 def extract_features(file_path):
     try:
-        # --- NEW AUDIO LOADING METHOD USING PYDUB ---
-        # 1. Load audio file with pydub
-        audio = AudioSegment.from_file(file_path)
-        
-        # 2. Set sample rate to 22050 Hz (standard for librosa)
-        audio = audio.set_frame_rate(22050)
-        
-        # 3. Convert to mono
-        audio = audio.set_channels(1)
 
-        # 4. Extract 30-second segment from the middle (45s in)
-        start_ms = 45 * 1000
-        end_ms = start_ms + 30 * 1000
-        segment = audio[start_ms:end_ms]
+        def _pydub_load_like_dualmodel(file_path, offset_sec=45.0, duration_sec=30.0):
+            audio = AudioSegment.from_file(file_path)
+            audio = audio.set_channels(1)  # mono like librosa.load default
+            sr = audio.frame_rate
 
-        # 5. Convert to numpy array and normalize
-        samples = np.array(segment.get_array_of_samples()).astype(np.float32) / np.iinfo(segment.sample_width * 8).max
-        
-        # Librosa now works on the raw audio data (y) and sample rate (sr)
-        y = samples
-        sr = segment.frame_rate
-        # --- END OF NEW LOADING METHOD ---
+            start_ms = int(offset_sec * 1000)
+            end_ms = start_ms + int(duration_sec * 1000)
 
+            if start_ms >= len(audio):
+                # If file is shorter than offset, fallback to last duration window or full
+                if len(audio) > duration_sec * 1000:
+                    audio = audio[-int(duration_sec * 1000):]
+                else:
+                    audio = audio
+            else:
+                # Clip desired segment within bounds
+                end_ms = min(end_ms, len(audio))
+                audio = audio[start_ms:end_ms]
+
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+            max_val = float(1 << (8 * audio.sample_width - 1))
+            samples = samples / max_val  # normalize to [-1, 1]
+
+            return samples, sr
+
+        y, sr = _pydub_load_like_dualmodel(file_path)
         features = {}
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
