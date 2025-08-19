@@ -1,3 +1,5 @@
+# --- START OF FILE app.py ---
+
 #USAGE : streamlit run app.py 
 
 import os
@@ -11,7 +13,7 @@ import tempfile
 import gc
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pydub import AudioSegment
+from pydub import AudioSegment # <-- IMPORT Pydub
 
 # Disable GPU usage
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -19,9 +21,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 # --- Load Pre-trained Models ---
 @st.cache_resource
 def load_models():
-    deep_model = joblib.load("model.pkl")
-    xgb_model = joblib.load("mood_xgboost_tuned.pkl")
-    label_encoder = joblib.load("label_encoder.pkl")
+    deep_model = joblib.load("models/model.pkl")
+    xgb_model = joblib.load("models/mood_xgboost_tuned.pkl")
+    label_encoder = joblib.load("models/label_encoder.pkl")
     return deep_model, xgb_model, label_encoder
 
 deep_model, xgb_model, label_encoder = load_models()
@@ -34,7 +36,33 @@ cluster_emotions = deep_model["cluster_emotions"]
 # --- Feature Extraction ---
 def extract_features(file_path):
     try:
-        y, sr = librosa.load(file_path, offset=45.0, duration=30.0, sr=None)
+
+        def _pydub_load_like_dualmodel(file_path, offset_sec=45.0, duration_sec=30.0):
+            audio = AudioSegment.from_file(file_path)
+            audio = audio.set_channels(1)  # mono like librosa.load default
+            sr = audio.frame_rate
+
+            start_ms = int(offset_sec * 1000)
+            end_ms = start_ms + int(duration_sec * 1000)
+
+            if start_ms >= len(audio):
+                # If file is shorter than offset, fallback to last duration window or full
+                if len(audio) > duration_sec * 1000:
+                    audio = audio[-int(duration_sec * 1000):]
+                else:
+                    audio = audio
+            else:
+                # Clip desired segment within bounds
+                end_ms = min(end_ms, len(audio))
+                audio = audio[start_ms:end_ms]
+
+            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+            max_val = float(1 << (8 * audio.sample_width - 1))
+            samples = samples / max_val  # normalize to [-1, 1]
+
+            return samples, sr
+
+        y, sr = _pydub_load_like_dualmodel(file_path)
         features = {}
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
@@ -50,7 +78,8 @@ def extract_features(file_path):
         zcr = librosa.feature.zero_crossing_rate(y)
         features["zero_crossing_rate_mean"] = np.mean(zcr)
         features["zero_crossing_rate_var"] = np.var(zcr)
-        features["tempo"] = librosa.beat.tempo(y=y, sr=sr)[0]
+        
+        features["tempo"] = librosa.feature.tempo(y=y, sr=sr)[0]
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
         features["spectral_centroid_mean"] = np.mean(centroid)
@@ -94,7 +123,7 @@ def extract_features(file_path):
         tempogram = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr)
         features["tempo_var"] = np.var(tempogram)
 
-        _, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+        _, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
         features["beat_count"] = len(beat_frames)
 
         return features
@@ -102,7 +131,8 @@ def extract_features(file_path):
         logging.error(f"Error processing file: {e}")
         return None
 
-# --- Prediction Functions ---
+# --- [REST OF THE FILE IS UNCHANGED] ---
+# ... (Prediction Functions, Process Uploaded File, Streamlit UI) ...
 def predict_deep(features):
     order = scaler.feature_names_in_ if hasattr(scaler, "feature_names_in_") else sorted(features.keys())
     x = np.array([features[f] for f in order if f in features]).reshape(1, -1)
@@ -122,7 +152,7 @@ def predict_xgb(features):
 
 # --- Process Uploaded File ---
 def process_uploaded(file):
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.name)[1]) as temp_file:
         temp_file.write(file.getbuffer())
         temp_path = temp_file.name
     features = extract_features(temp_path)
