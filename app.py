@@ -36,28 +36,36 @@ cluster_emotions = deep_model["cluster_emotions"]
 # --- Feature Extraction ---
 def extract_features(file_path):
     try:
-        # --- NEW AUDIO LOADING METHOD USING PYDUB ---
+        # --- PRESERVE ORIGINAL QUALITY AUDIO LOADING ---
         # 1. Load audio file with pydub
         audio = AudioSegment.from_file(file_path)
         
-        # 2. Set sample rate to 22050 Hz (standard for librosa)
-        audio = audio.set_frame_rate(22050)
-        
-        # 3. Convert to mono
+        # 2. Convert to mono (preserve original sample rate)
         audio = audio.set_channels(1)
 
-        # 4. Extract 30-second segment from the middle (45s in)
+        # 3. Extract 30-second segment from the middle (45s in)
         start_ms = 45 * 1000
         end_ms = start_ms + 30 * 1000
         segment = audio[start_ms:end_ms]
 
-        # 5. Convert to numpy array and normalize
-        samples = np.array(segment.get_array_of_samples()).astype(np.float32) / np.iinfo(segment.sample_width * 8).max
+        # 4. Convert to numpy array and normalize (preserve original bit depth)
+        samples = np.array(segment.get_array_of_samples()).astype(np.float32)
+        # Normalize based on actual bit depth
+        if segment.sample_width == 1:  # 8-bit
+            samples = samples / 128.0
+        elif segment.sample_width == 2:  # 16-bit
+            samples = samples / 32768.0
+        elif segment.sample_width == 3:  # 24-bit
+            samples = samples / 8388608.0
+        elif segment.sample_width == 4:  # 32-bit
+            samples = samples / 2147483648.0
+        else:
+            samples = samples / np.max(np.abs(samples))  # Fallback normalization
         
-        # Librosa now works on the raw audio data (y) and sample rate (sr)
+        # Use original sample rate and audio data
         y = samples
-        sr = segment.frame_rate
-        # --- END OF NEW LOADING METHOD ---
+        sr = segment.frame_rate  # Preserve original sample rate
+        # --- END OF QUALITY PRESERVING LOADING METHOD ---
 
         features = {}
 
