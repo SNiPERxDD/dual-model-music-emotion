@@ -1,6 +1,6 @@
 # --- START OF FILE app.py ---
 
-#USAGE : streamlit run app.py 
+#USAGE : streamlit run app.py
 
 import os
 import numpy as np
@@ -11,9 +11,10 @@ import logging
 import streamlit as st
 import tempfile
 import gc
+import re # Import re module for regex
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pydub import AudioSegment 
+from pydub import AudioSegment
 
 # Disable GPU usage
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -33,10 +34,23 @@ umap_model = deep_model["umap"]
 kmeans = deep_model["kmeans"]
 cluster_emotions = deep_model["cluster_emotions"]
 
+# --- Filename Sanitization Function ---
+def sanitize_filename(filename):
+    """
+    Removes or replaces special characters from a filename to make it safe for file system operations
+    and HTTP requests.
+    """
+    # Remove characters that are problematic in file paths or URLs
+    # This regex matches any character that is not alphanumeric, a dash, an underscore, or a dot
+    # It also handles leading/trailing spaces and multiple spaces.
+    sanitized = re.sub(r'[^\w\s.-]', '', filename) # Keep letters, numbers, underscore, hyphen, dot
+    sanitized = re.sub(r'\s+', '_', sanitized)     # Replace spaces with single underscores
+    sanitized = sanitized.strip('_')                # Remove leading/trailing underscores
+    return sanitized
+
 # --- Feature Extraction ---
 def extract_features(file_path):
     try:
-
         def _pydub_load_like_dualmodel(file_path, offset_sec=45.0, duration_sec=30.0):
             audio = AudioSegment.from_file(file_path)
             audio = audio.set_channels(1)  # mono like librosa.load default
@@ -78,7 +92,7 @@ def extract_features(file_path):
         zcr = librosa.feature.zero_crossing_rate(y)
         features["zero_crossing_rate_mean"] = np.mean(zcr)
         features["zero_crossing_rate_var"] = np.var(zcr)
-        
+
         features["tempo"] = librosa.feature.tempo(y=y, sr=sr)[0]
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
@@ -131,10 +145,9 @@ def extract_features(file_path):
         logging.error(f"Error processing file: {e}")
         return None
 
-# --- [REST OF THE FILE IS UNCHANGED] ---
-# ... (Prediction Functions, Process Uploaded File, Streamlit UI) ...
 def predict_deep(features):
     order = scaler.feature_names_in_ if hasattr(scaler, "feature_names_in_") else sorted(features.keys())
+    # Filter features to ensure they exist in 'features' dict before creating array
     x = np.array([features[f] for f in order if f in features]).reshape(1, -1)
     x_scaled = scaler.transform(x)
     encoded = encoder.predict(x_scaled)
@@ -151,16 +164,23 @@ def predict_xgb(features):
     return mood_label
 
 # --- Process Uploaded File ---
-def process_uploaded(file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.name)[1]) as temp_file:
-        temp_file.write(file.getbuffer())
+def process_uploaded(file_object, original_filename): # Accept file_object and original_filename separately
+    # Use the original (potentially unsanitized) filename for display purposes
+    # but use a sanitized one for temporary file creation
+    sanitized_filename = sanitize_filename(original_filename)
+    # Ensure a unique temporary file name to avoid conflicts if sanitized names are identical
+    suffix = os.path.splitext(sanitized_filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="audio_") as temp_file:
+        temp_file.write(file_object.getbuffer())
         temp_path = temp_file.name
+
     features = extract_features(temp_path)
     os.remove(temp_path)
     gc.collect()  # Free up resources
+
     if features:
-        return predict_deep(features), predict_xgb(features)
-    return "Error", "Error"
+        return original_filename, predict_deep(features), predict_xgb(features) # Return original filename for display
+    return original_filename, "Error", "Error"
 
 # --- Streamlit UI ---
 def main():
@@ -174,14 +194,14 @@ def main():
 
         # Use ThreadPoolExecutor to parallelize file processing
         with ThreadPoolExecutor() as executor:
-            future_to_file = {executor.submit(process_uploaded, file): file for file in uploaded_files}
+            # Pass both the file object and its original name
+            future_to_file = {executor.submit(process_uploaded, file, file.name): file.name for file in uploaded_files}
             total = len(future_to_file)
             completed = 0
             for future in as_completed(future_to_file):
-                fname = future_to_file[future].name
-                deep_pred, xgb_pred = future.result()
+                original_name, deep_pred, xgb_pred = future.result() # Unpack the returned values
                 results.append({
-                    "Filename": fname,
+                    "Filename": original_name, # Use the original filename for the table
                     "Deep Model": deep_pred,
                     "XGBoost Model": xgb_pred
                 })
